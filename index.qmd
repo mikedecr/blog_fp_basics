@@ -1,0 +1,525 @@
+---
+author: Michael DeCrescenzo
+categories: [code, r]
+title: |
+    More than `lapply`: functional programming adventures in R
+# subtitle: | "That's it. Every blog post gets its own repository" and other adventures
+# excerpt: |
+#     A blogdown website is more like a combination of modular components that are better managed independently, each component with its own repository.
+#     These modular components _come together_ at the nexus of the website, but the components do not _belong to_ the website.
+date: "2022-07-31"
+draft: true
+# image: "git_featured.png"
+---
+
+When people talk about "functional programming" in R, they usually mean two things.
+
+1. Many intermediate R users have a _thing_ against for-loops because for-loops have a reputation for being slow in R,[^loops]
+   instead advocating for `apply` functions or `purrr::map` in a nested-data-frame context.
+   (I will explain `apply` and `map` below.)
+   This is popularly referred to in these circles as "functional programming" because,
+   rather than procedurally manipulating data explicitly,
+   the approach takes a pre-defined function and merely applies it to data.
+2. More advanced R discussions (see the book literally titled [Advanced R](https://adv-r.hadley.nz/fp.html))
+   refer to the fact that functions are first-class objects in R, 
+   meaning that you can look at their properties or do operations on them,
+   just like you can do to other data structures.
+
+[^loops]: This reputation may be unfair.
+        Most of the time, loops are slow because people are using them to do unwise things,
+        like growing the size of an array in each iteration.
+        This causes R to make a lot of copies of data that would be avoided if the user were more careful.
+        Using `apply` functions solves this problem for them either way.
+
+By the numbers, most R users are more probably familiar with the meaning of [1] than [2],
+which is a shame because functional paradigms outside of R go way deeper, and get _way_ weirder, than `apply(function, data)`.
+This post will be an attempt to explain a little of this weirdness and implement it in R.
+
+Readers who are experienced with functional programming will recognize that this post doesn't get _so_ detailed.
+They may also realize that underneath the tidyverse interface are a _lot_ of functional ideas, notably tidy evaluation.
+This post keeps the material pretty light, and we won't get into tidy evaluation.
+Maybe some other time.
+
+## What is functional programming?
+
+Let's do the Wikipedia thing.
+From the [functional programming](https://en.wikipedia.org/wiki/Functional_programming) article:
+
+> In computer science, functional programming is a programming paradigm where programs are constructed by applying and composing functions. 
+
+You may be thinking, "That sounds pretty unremarkable.
+I already know that I write functions and apply them.
+Why do we need a name for this?"
+
+Well... read on:
+
+> It is a declarative programming paradigm in which function definitions are trees of expressions that map values to other values,
+> rather than a sequence of imperative statements which update the running state of the program.
+
+There's a lot of _meaning_ in this sentence that may be hard to appreciate without knowing more of the theory.
+But let's try to break it apart.
+Starting in the middle.
+
+### "Functions map values to other values"
+
+You have probably seen function definition written like this,
+$$
+y = a + bx
+$$
+and we can say that $y$ is a function of $x$. We can label the transformation of $x$ as $f$ and say $y = f(x)$.
+
+But there is another way to write this that you may have seen in some papers that use overly ostentatious notation:
+$$
+f : X \mapsto Y
+$$
+which reads, "$f$ is a _map_ from $X$ to $Y$", where capital-$X$ and capital-$Y$ are _sets_ of values, not anonymous single values $x$ and $y$.
+Stated slightly differently, $f$ is a function that eats a value from some set $X$ and spits out a value in some set $Y$.
+In this example, the value of $y$ that it returns is $a + (b \times x)$.[^category]
+
+[^category]: You may have assumed that $x$ and $y$ are real (that is, $\mathbb{R}$) numbers and that the operations $+$ and $\times$ refer to the sum and product operations that we conventionally apply to real numbers.
+           It's fine if you made those assumptions, but it wasn't necessary.
+           One cool thing about this family of math is that you can let $X$ and $Y$ be other kinds of sets containing god-knows-what, and as long as $+$ and $\times$ refer to operations on values from those sets that maintain certain properties, the $f$ map remains perfectly coherent.
+           [Category theory](https://www.youtube.com/watch?v=I8LbkfSSR58&list=PLbgaMIhjbmEnaH_LTkxLI7FMa2HsnawM_&index=1) tells us about which properties must be maintained for this expression to hold generally.
+
+### "Function definitions are _trees_ of expressions ..." 
+
+Referring to functions as "trees" won't make sense until we talk about function _composition_.
+If you haven't messed with this sort of math or programming before, your mental picture of function composition probably looks like this.
+\begin{align}
+y &= f(x) \\
+z &= g(y) 
+\end{align}
+We could put these expressions together...
+\begin{align}
+z &= g(f(x)) \\
+\end{align}
+... and then we might represent that composition with the symbol $h$, so that that $h(x)$ is equivalent to $g(f(x))$.
+And there's nothing wrong with this.
+But it is verbose---we don't have to refer to any of these function arguments or values---$x$, $y$, or $z$---to introduce $h$.
+Instead we can define $h$ "point-free":
+$$
+h = g \circ f
+$$
+where the symbol $\circ$ refers to function composition (in a leftward direction).
+The expression $g \circ f$ is a new function, which you can speak as "$g$ compose $f$".
+Its recipe is "apply $g$ after $f$".
+We could re-introduce our argument $x$ and recover that $z = (g \circ f)(x)$, which is equivalent to writing $z = h(x)$, omitting any reference to $y$.
+
+One essential fact that will underpin everything going forward is this: function composition is associative.
+We can demonstrate by introducing one more function $j$.
+Let's write these functions out in "map" notation, and let's say they are all maps from real numbers to real numbers, which will keep things simple.
+
+\begin{align}
+    \newcommand{\R}{\mathbb{R}}
+    f : \R \mapsto \R \\
+    g : \R \mapsto \R \\
+    j : \R \mapsto \R 
+\end{align}
+
+Now we want to compose all of them.
+Because composition is associative, we could write this many ways:
+
+- We could write it out long-form: $j \circ g \circ f$, which if applied to $x$ would be equivalent to $j(g(f(x)))$.
+- We can introduce $h = g \circ f$ as we did above, and rewrite as $j \circ h$, which is the same as $j \circ (g \circ f)$ or $j(h(x))$.
+- Or we can compose $j$ and $g$ into some $d$ and say $d \circ f$, which is the same as $(j \circ g) \circ f$ or $d(f(x))$.
+
+All of these expressions are equivalent.
+_As long as the output from one map is the same type as the input to the subsequent map_ (in this case, all functions map from real to real),
+we can group these compositions however we want and achieve the same output value.
+
+Ok, that makes sense.
+But how is this a "tree"?
+
+It turns out we can diagram a composed function as a network with nodes and directed edges.
+The nodes represent functions, and the edges point in the direction of composition.
+Here is the example with $j \circ g \circ f$ as a tree. Let's call their composition $a$.
+
+
+```{dot}
+#| fig-align: center
+digraph F {
+    layout=dot
+    j -> a;
+    g -> a;
+    f -> a;
+}
+```
+
+The tree will express associativity in a different way: we can pre-compose any two functions by creating another node from them.
+This grouping encodes the order of operations.
+
+```{dot}
+#| fig-align: center
+digraph F {
+    layout=dot
+    j -> a;
+    h -> a;
+    g -> h;
+    f -> h;
+}
+```
+
+We can see that composition is associative because the composition of $f$ and $g$ into $h$ doesn't change the order in which functions are applied to form $a$.
+Remember, function composition is associative, but only some functions are commutative.
+This means we can "pre-group" functions in the tree however we want, but we can't change their ordering except in special circumstances.
+
+
+
+
+
+
+
+### "...Rather than a sequence of imperative statements that update the running state."
+
+Most of the time, at least with data analysis, we program by updating the state of some data.
+We would use the functions $f$, $g$, and $j$ like this:
+```{r}
+#| eval: false
+y = f(x)
+z = g(y)
+w = j(z)
+```
+There is some data `x` that we change by doing things to it.
+
+Programs that implement some functional approaches might let us compose something more interesting, like this:
+```{r}
+#| eval: false
+w = x |> f() |> g() |>j()
+```
+We don't know how to do this yet, because functional programming hasn't been invented, but the main difference here is that most of our code is composing a function (`f` then `g` then `j`), not mutating data.
+The data have to get acted on eventually, but we do it only after we composing a map from the data to its endpoint, not by doing a thing to the data, and then doing another thing to the data, and then doing another thing...
+
+Stated a different way, when we do more imperative programming, the present state of `x` is always our concern.
+Our path from beginning to end leads to us to leave `x` in some intermediate state constantly, and the statefulness of `x` causes a lot of problems for us as we try to plot our way to our destination.
+When we do functional programming, however, we write the entire recipe for what we will do to `x` before we touch `x` at all.
+We prefer not to let the intermediate state be visible at all.
+The intermediate state is pretty useless.
+
+This might be hard to envision because functional programming hasn't been invented yet.
+Let's invent it.
+
+We saw a notational approach to function composition above that looked like this:
+\begin{align}
+w = (j \circ g \circ u)
+\end{align}
+If we could do that in a computer, it might look like this:
+
+```{r}
+#| eval: false
+w = compose(j, g, f)
+```
+
+There are two important things to remember about this.
+
+1. Function composition returns a _new function_.
+   It does not immediately return data.
+   In the example, `w` is the composition, which is only evaluated on data when it is necessary.
+   It may not be evaluated on data at all directly---we might will likely compose `w` with another function before data enter the picture.
+   This will give a feeling of delayed evaluation.
+   We will create lots of things that won't touch data any time soon.
+2. Function compositions are themselves composable, so we want a framework to compose a lot of functions all at once with whatever associative groupings we want.
+   In the math above, we saw that we could compose an arbitrary sequence offunctions and the result should be well-behaved (as long as their input and output types conform---more on that in a bit).
+   We would like to achieve that behavior in the code as well.
+
+We start with a primitive operation to compose two functions.
+We call it `compose_once`---it implements only one composition of left-hand and right-hand functions.
+
+```{r}
+# returns the new function: f . g
+compose_once = function(f, g) {
+    function(...) f(g(...))
+}
+```
+
+Read this closely.
+`compose_once` takes two functions as arguments; it doesn't know or care what the input functions are.
+It also doesn't return a value.
+Instead, it returns a _new function_ that defines a recipe for evaluating the functions in sequence on data, whenever we happen to pass it data.
+The data themselves do not appear with any specificity in the function.
+This is also on purpose.
+Composition does not care what the data are.
+It only knows how to chain the functions together.
+
+This basic operation gives us behavior like this.
+We often want to know the number of unique elements in some container.
+
+```{r}
+#| collapse: true
+# save the function created by compose_once
+# no computation on data is done yet.
+n_unique = compose_once(length, unique)
+
+# apply the function on an argument
+n_unique(c(0, 0, 0, 1, 2))
+```
+
+`compose_once` lets us compose two functions, but we should be able to compose however many functions we want (as long as the output value of one function can be mapped to the output set of the next function).
+
+We can extend this to an arbitrary series of functions by performing a _reduction_ across a set of functions.
+
+```{r}
+# pass vector fns = c(f1, f2, ..., fn)
+compose = function(fns) {
+    Reduce(compose_once, fns, init=identity)
+}
+```
+
+If you aren't familiar with reductions, they are an efficient trick to collapse an array (loosely speaking) of input values into one output value, accumulating at each step the results of some binary operation.
+If you want to learn more, follow this footnote.[^reduce]
+We also supply an argument to `init`, which isn't necessary but is interesting in the context of function composition, which I explain in this other footnote.[^init]
+
+[^reduce]: In this case, the array we are collapsing is full of functions rather than, say, numbers.
+         And the operation we apply as we accumulate the result is a function composition.
+         The result of the reduction is yet another function: the composition of all functions passed in the `fns` argument.
+
+[^init]: The role of an initialization in a reduction is to handle an identity condition: how do we handle "empty" values along the reduction without affecting the output.
+        Stated differently, what value can we pass to ensure a "no-op" when the reduction is applied?
+       For example, if we reduce an array of numbers by the addition operator, the initialization would be the value `0`, because any number `+ 0` results in the original number.
+       When reducing by multiplaction, we want the initialization to be `1`, because any number `* 1` results in the original number.
+       When we are reducing _functions_ by _composing_ them, we use the identity function.
+       Not surprisingly, the identity function simply returns the function arguments unaffected: `identity(x)` would return `x`.
+       For function composition, composing the function `f` with the identity function is equivalent to `f`.
+
+Let's see it in action:
+
+```{r}
+# same as n_unique but convert to a string
+string_n_unique <- compose(c(as.character, length, unique))
+
+string_n_unique(c(0, 0, 0, 1, 2))
+```
+
+And just to underscore your confidence in the associativity of composition, we can exhaustively group these compositions without affecting the results.
+
+```{r}
+#| collapse: true
+x <- c(0, 0, 0, 1, 2)
+
+compose(c(as.character, compose(c(length, unique))))(x)
+compose(c(compose(c(as.character, length)), unique))(x)
+```
+
+You may have realized that associativity is helpful for API design.
+We may need to design a routine that will do 10 functions, but for one reason oranother, we can group the first 4 operations under one function name that we compose with the remaining operations later.
+Intermediate functions are more useful than intermediate state because at least an intermediate function is legible and potentially reusable. 
+Chances are your intermediate data are not that useful.
+
+### Types are your guide.
+
+functional likes types.
+restrictive? R and python _likes_ not worrying about types.
+they like the mutability and flexibility.
+But types will guide us because they ensure composability.
+
+```
+unique : a -> array
+length : array -> int
+as.character : a -> string
+```
+
+this charts our course:
+
+```
+array -> array -> int -> string
+```
+
+abstract away the middle.
+string_unique turns an array into a string.
+We could compose this with functions that return arrays on one side, or functions that take strings on the other.
+
+The transparency provided by types lets us be principled in our API design.
+They also provide structure and clarity, letting you build powerful things pretty easily and abstractly.
+
+
+
+## Example
+
+
+
+This is where we compare and contrast functional programming from this "sequence of imperative statements."
+Consider the way you do _most things in R_.
+Let's take a data frame, 
+
+```{r}
+mtcars = tibble::as_tibble(mtcars)
+print(mtcars, n = 5)
+```
+
+One group routine:
+- colMeans : df -> vector
+- as.list : vector -> list
+- as.data.frame : list -> data.frame
+
+```{r}
+#| eval: false
+to_df = compose(c(tibble::as_tibble, as.list))
+means = compose(c(to_df, colMeans))
+means(mtcars)
+```
+
+Helper:
+- partial_lapply: f(l, g) -> f(l)
+
+```{r}
+partial_lapply <- function(f) {
+    function(x) lapply(x, f)
+}
+```
+
+by-group routine:
+- split: df -> list
+- apply_fun : l -> l
+- bind_rows: l -> df
+
+```{r}
+#| eval: false
+apply_means = partial_lapply(means)
+means_by = compose(c(dplyr::bind_rows, apply_means, split))
+means_by(mtcars, mtcars$cyl)
+```
+
+
+
+```{r}
+#| eval: false
+CL(apply_means, split)(mtcars, mtcars$cyl)
+apply_means(split(mtcars, mtcars$cyl))
+```
+
+
+
+```{r}
+# returns the new function: f . g
+compose_once <- function(f, g) {
+    function(...) f(g(...))
+}
+
+# compose vector of fns
+compose <- function(fns) {
+    Reduce(compose_once, fns, init=identity)
+}
+
+# fine we redid lapply too
+apply_on_list <- function(l, f) {
+    v = vector(mode = "list", length = length(l))
+    for (x in names(l)) {
+        v[[x]] = f(l[[x]])
+    }
+    return(v)
+}
+
+# similar to a functools.partial for lapply
+partial_lapply <- function(f) {
+    function(x) apply_on_list(x, f)
+}
+
+# data frame of means
+df_means <- compose(c(tibble::as_tibble, as.list, colMeans))
+# means within group
+apply_means <- partial_lapply(df_means)
+means_by <- compose(c(dplyr::bind_rows, apply_means, split))
+
+# test
+means_by(mtcars, mtcars$cyl)
+
+# A tibble: 3 × 11
+#     mpg   cyl  disp    hp  drat    wt  qsec    vs    am  gear  carb
+#   <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl> <dbl>
+# 1  26.7     4  105.  82.6  4.07  2.29  19.1 0.909 0.727  4.09  1.55
+# 2  19.7     6  183. 122.   3.59  3.12  18.0 0.571 0.429  3.86  3.43
+# 3  15.1     8  353. 209.   3.23  4.00  16.8 0     0.143  3.29  3.5 
+```
+
+
+CL : function f, function g -> function h
+
+CL(do_lapply(colMeans), subset)
+
+colMeans : df -> vector
+to_df : vector -> df
+
+partial_lapply : f -> lapply
+
+
+subset : df x -> list L
+apply_colmeans : list -> list
+
+
+
+vec2df = function(x) data.frame(x, names = names(x))
+
+to_df <- CL(tibble::as_tibble, as.list)
+
+apply_df = partial_lapply(to_df)
+
+
+
+
+
+
+Let's consider imperative 
+
+Define "state"
+
+Consider writing this in an imperative way:
+
+- split
+
+
+## Revisiting $f(x) = a + bx$
+
+"For some values $a$ and $b$, and _some operation_ $\cdot$, and _some operation_ $+$ that can be performed on the set $X$.
+
+
+
+
+### Compose right (pipe)
+
+You may have also thought to yourself, composing "left" sure is harder to read than composing "right" like the pipe operator.
+First, functional programming hasn't been invented yet, so you don't know about the pipe operator.
+Second, we could implement a "linear" composition routine by just simply reversing the array of functions before calling `compose`.
+```{r}
+pipe = function(fns) compose(rev(fns))
+```
+See for yourself:
+
+```{r}
+x <- c(0, 0, 0, 1, 2)
+
+pipe(c(unique, length, as.character))(x)
+```
+
+This pattern for creating new functions---(1) do a near-trivial transformation before (2) calling a similar function---is bread-and-butter for a functional approach.
+You build your program by keeping functions small, "pure" (no side effects other than returning a value), and composable, so functions can be used by other functions to accomplish bigger things.
+
+
+
+```{r}
+#| eval: false
+df = read_xyz(...)
+df = rename(...)
+df = mutate(...)
+df = filter(...)
+df = summarize(...)
+```
+
+Tidyverse does let us be _less_ procedural than this, because we can compose steps...
+
+```{r}
+#| eval: false
+df = read_xyz(...)
+df = df |>
+    rename(...) |>
+    mutate(...) |>
+    filter(...) |>
+    summarize(...) 
+```
+
+but that's cheating... it is a type of function composition, whether you realize it or not.
+
+
+
+
+
+
+
