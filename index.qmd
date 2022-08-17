@@ -467,7 +467,7 @@ apply_on_elements = function(l, f) {
     }
     return(v)
 }
-# partial apply
+# 2b. partial apply
 partial_apply = function(f) {
     function(x) apply_on_elements(x, f)
 }
@@ -476,6 +476,11 @@ partial_apply = function(f) {
 # 3. interface layer
 means_by = compose(c(dplyr::bind_rows, partial_apply(means), split))
 ```
+
+Again, given that step (2) is rebuilding the wheel, it's pretty impressive how little code goes into steps (1) and (3) to achieve the end results.
+It certainly isn't as succinct as `dplyr::summarize`, but remember, functional programming hasn't been invented yet.
+But moreover, you can start to imagine how tools like partials can be stacked to create tools that are essentially as powerful as `dplyr`, even if their interfaces are different (more functional).
+
 
 Let's apply the ultimate function, `means_by`, to various groups in `mtcars`.
 
