@@ -19,14 +19,8 @@ When people talk about "functional programming" in R, they usually mean two thin
 
 1. Many intermediate R users have a _thing_ against for-loops because for-loops have a reputation for being slow in R,[^loops]
    instead advocating for `apply` functions or `purrr::map` in a nested-data-frame context.
-   (I will explain `apply` and `map` below.)
-   This is popularly referred to in these circles as "functional programming" because,
-   rather than procedurally manipulating data explicitly,
-   the approach takes a pre-defined function and merely applies it to data.
-2. More advanced R discussions (see the book literally titled [Advanced R](https://adv-r.hadley.nz/fp.html))
-   refer to the fact that functions are first-class objects in R, 
-   meaning that you can look at their properties or do operations on them,
-   just like you can do to other data structures.
+   This is referred to in these circles as "functional programming" because, rather than procedurally manipulating data explicitly, you are taking a pre-defined function and merely applies it to data.
+2. More [advanced](https://adv-r.hadley.nz/fp.html) R discussions refer to the fact that functions are first-class objects in R, meaning that you can look at their properties or do operations on them, just like you can do to other data structures.
 
 [^loops]: This reputation may be unfair.
         Most of the time, loops are slow because people are using them to do unwise things,
@@ -34,14 +28,14 @@ When people talk about "functional programming" in R, they usually mean two thin
         This causes R to make a lot of copies of data that would be avoided if the user were more careful.
         Using `apply` functions solves this problem for them either way.
 
-By the numbers, most R users are more probably familiar with the meaning of [1] than [2],
+By the numbers, most R users are probably more familiar with the meaning of [1] than [2],
 which is a shame because functional paradigms outside of R go way deeper, and get _way_ weirder, than `apply(function, data)`.
 This post will be an attempt to explain a little of this weirdness and implement it in R.
 
 Readers who are experienced with functional programming will recognize that this post doesn't get _so_ detailed.
-They may also realize that underneath the tidyverse interface are a _lot_ of functional ideas, notably tidy evaluation.
-This post keeps the material pretty light, and we won't get into tidy evaluation.
-Maybe some other time.
+They may also realize that underneath R's interfaces are a lot of functional ideas, especially the tidyverse's "tidy evaluation".
+But this post keeps the material fairly light.
+
 
 ## What is functional programming?
 
@@ -102,7 +96,7 @@ $$ \begin{align} z &= g(f(x)) \end{align} $$ {#eq-nested}
 and then we can represent that composition with a different symbol $h$, so that that $h(x)$ is equivalent to $g(f(x))$.
 
 There's nothing incorrect about that approach, but it is verbose.
-We actually don't have to refer to any function arguments or values---$x$, $y$, or $z$---to introduce $h$.
+We actually don't have to refer to any function arguments or values (x$, $y$, or $z$) to introduce $h$.
 Instead we can define $h$ "point-free":
 $$ h = g \circ f $$ {#eq-composition}
 where the symbol $\circ$ refers to function composition (in a leftward direction).
@@ -169,6 +163,8 @@ Composition is associative, but not all functions are commutative.
 
 ### "...Rather than a sequence of imperative statements that update the running state."
 
+This is the really important stuff.
+
 Most of the time when we do data analysis, we write code that updates the _state_ of some data.
 Say I start with some $x$, and then I do functions $f$, $g$, and $j$ to it.
 ```{r}
@@ -180,17 +176,17 @@ w = j(z)
 There is some data `x` that we alter, in steps, by doing things to it, each time saving some data at some intermediate state.
 
 The functional approach would be different.
-Instead of doing most of our typing passing data around, we create functions.
+Instead of spending most of our time, energy, and keystrokes passing data around, we spend these resources writing functions.
 ```{r}
 #| eval: false
 h = compose(g, f)
 a = compose(j, h)
 ```
 And only later (say, in some `main()` routine) do we apply our ultimately-composed functions to data.
-The data have to get acted on eventually, but we do it only after we compose a map from the data to some endpoint.
+The data have to be acted on eventually, but we do it only after we compose a map from the data to some endpoint.
 
 Stated a different way, when we do more imperative programming, the present state of `x` is always our concern.
-Our path from beginning to end requires us to leave `x` in some intermediate state at many different steps, and the statefulness of `x` causes a lot of problems for us as we try to plot our way to our destination.
+Our path from beginning to end requires us to leave `x` in some intermediate state at many different steps, and the present state of `x` can causes a lot of problems for us as we try to plot our way to our destination.
 When we do functional programming, however, we simply write the recipe for what we will do to `x` before we touch `x` at all.
 We prefer not to let the intermediate state become visible.
 The intermediate state is, after all, not that useful.
@@ -201,21 +197,21 @@ This might be hard to envision because we haven't invented functional programmin
 
 We saw a notational approach to function composition above that looked like this:
 \begin{align}
-w = (j \circ g \circ u)
+a = (j \circ g \circ u)
 \end{align}
 If we could do that in a computer, it might look like this:
 
 ```{r}
 #| eval: false
-w = compose(j, g, f)
+a = compose(j, g, f)
 ```
 
 There are two important things to remember about this.
 
 1. Function composition creates a _new function_.
    It does not immediately create data.
-   In the example, `w` is the composition, which is only evaluated on data when it is necessary.
-   It may not be evaluated on data at all directly---we will likely compose `w` with another function before we even think about data.
+   In the example, `a` is the composition, which is only evaluated on data when it is necessary.
+   It may not be evaluated on data at all directly---we will likely compose `a` with another function before we even think about data.
    If you have heard of _delayed evaluation_, this is probably why.
    You were doing something that created new functionality instead of new data.
 2. Function compositions are themselves composable, so we want a framework to compose a lot of functions all at once with whatever associative groupings we want.
@@ -420,16 +416,16 @@ The user has to pass `x` to evaluate the partial at a later time.
 Here we use this tool to create a partial `length`, which we apply to some `x`.
 
 ```{r}
-lengths = partial_apply(length)
+lens = partial_apply(length)
 
 # examine, it's a function
-lengths
+lens
 
-lengths(x)
+lens(x)
 ```
 
 We see more of that delayed evaluation behavior.
-This is helpful to let us create a function that applies our earlier `means` to groups of data.
+This lets us create a function that applies our earlier `means` to groups of data.
 
 ```{r}
 partial_apply(means)
@@ -440,7 +436,7 @@ partial_apply(means)
 
 Rather, create a function that _would_ do that, if it were evaluated.
 
-We want to split a data frame into a list, apply `means` to each element of that list, and return a final data frame.
+This function should a data frame into an iterable collection of groups (like a list), apply `means` to each element of that collection, and return a final data frame that re-merges the collection.
 Here's how we map these steps from type to type.
 
 - `split`: pair of (data frame, vector) $\mapsto$ list
@@ -485,8 +481,8 @@ means_by = compose(c(dplyr::bind_rows, partial_apply(means), split))
 ```
 
 Again, given that step (2) is rebuilding the wheel, it's pretty impressive how little code goes into steps (1) and (3) to achieve the end results.
-The final API in this iteration certainly isn't as succinct as `dplyr` grouping and summarizing, but remember, functional programming hasn't been invented yet.
-But moreover, you can start to imagine how tools like partials can be stacked to create tools that are essentially as powerful as `dplyr`, even if their interfaces are different (more functional).
+The interface currently isn't as succinct as `dplyr` grouping and summarizing, but remember, functional programming hasn't been invented yet.
+But moreover, you can start to imagine how tools like partials can be stacked to create tools that are essentially as powerful as `dplyr` with nice interfaces too, even if those interfaces are different from the imperative steps you are used to.
 
 
 Let's apply the ultimate function, `means_by`, to various groups in `mtcars`.
@@ -526,7 +522,7 @@ means_by(mtcars, mtcars$cyl)
 **Partial functions**.
 The `partial_apply` function might have been the weirdest-feeling step in the earlier example.
 But if you squint at it, you realize that this is sort of what the tidyverse does with tidy evaluation.
-Whenever you pipe a data frame to `mutate` or `filter` and so on, and you write expressions on unquoted variables, those arguments are (in a way) creating a new "partial" mutate function.
+Whenever you pipe a data frame to `mutate` or `filter` and so on, and you write expressions on unquoted variables, those arguments are (in a way) creating new partial functions.
 There is also delayed evaluation of that function: the unquoted expressions are not evaluated on the spot, but instead are translated to create the partial function you actually want.
 It is that translated/partial function that actually is evaluated when you pass it your data frame.
 
