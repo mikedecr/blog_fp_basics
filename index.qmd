@@ -179,7 +179,7 @@ w = j(z)
 ```
 There is some data `x` that we alter, in steps, by doing things to it, each time saving some data at some intermediate state.
 
-Functional framework would be different.
+The functional approach would be different.
 Instead of doing most of our typing passing data around, we create functions.
 ```{r}
 #| eval: false
@@ -236,7 +236,7 @@ Read this closely.
 `compose_once` takes two arguments, and those arguments are _functions_.
 We do not know or care what those functions are.
 We also return a new function, rather than some value.
-That new function defines a recipe for evaluating the functions $f$ and $g$ in sequence on some unknown data `x`, whever it happens to come across such data---we didn't pass any `x` yet.
+That new function defines a recipe for evaluating the functions $f$ and $g$ in sequence on some unknown inputs `...`, whever it happens to come across those inputs---we didn't pass any `...` yet.
 This is also on purpose.
 Composition does not care what the data are.
 It only knows how to evaluate functions in order.
@@ -308,55 +308,58 @@ compose(c(compose(c(english::english, length)), unique))(x)
 
 ### Types are our guide.
 
-You may have seen online flame wars about "strong typing".
+You may have seen online discussions about "strong typing".
 Types are representations of data in the computer.
 We have basic data types like short integers, long integers, characters, and strings.
 Languages implement other data structures like lists, dictionaries, arrays, tuples, etc. that we can also call types for our purposes.
 
 You may have seen some people discuss the "type flexibility" of R or Python as advantages.
 Well...sorry!
-Functional programming approaches like types because types provide structure to function composition at scale: functions can be composed if the output type of one function is the input type of the next function.
-This lets us build really big, abstract structures out of function composition, maybe even structures that are so big and complicated that we struggle to keep track of it all in our minds.
-But these structures are _virtually guaranteed to work_ as long as it is composed of functions with conforming input and output types.
+Functional programming like strong types because strong types provide structure to function composition at scale.
+Functions can be composed if the output type of one function is the input type of the next function.
+If we can trust this fact, we can build really big, abstract creations out of function composition, maybe even creations that are so big and complicated that we struggle to keep track of it all in our brains.
+But these creations are _virtually guaranteed to work_ as long as they are composed of functions with conforming input and output types.
 
 Not coincidentally, the associativity of function composition is additionally helpful for API design.
-If we have to build a big, abstract structure that, we can, at any point that we like, group some of the operations together if they form a coherent, reusable composition.
+If we have to build a big, abstract structure, we always have the option to group some of the operations together if they perform a coherent and useful operation.
 Intermediate functions are more useful than intermediate state because at least an intermediate function is legible and potentially reusable. 
 Chances are your intermediate data are not that legible or useful.
 
-Let's apply this to the `english_n_unique` example.
+Let's look at the "type roadmap" for the `english_n_unique` example.
 We started with a vector type and mapped to an `english` type.
 How did we know it would work?
 We can diagram the types.
 $$
 \begin{align}
    \mathtt{unique} &: \mathtt{many} \mapsto \mathtt{vector} \\
-   \mathtt{length} &: \mathtt{.any} \mapsto \mathtt{integer} \\
+   \mathtt{length} &: \mathtt{many} \mapsto \mathtt{integer} \\
    \mathtt{english::english} &: \mathtt{many} \mapsto \mathtt{vector}
 \end{align}
 $$
 We know that `unique` takes objects of various types (which I represent as `many` to say "this function has many methods for different data types") and returns a vector of unique elements.
-We know that length takes `many` and returns its length, however that method is defined.
-And `engligh::english` turns `many` objects into `english` type.
+We know that length takes `many` and returns its integer length, and that should work for a vector input.
+And `engligh::english` turns `many` objects into `english` type, which ought to work for an integer input.
 But we know that these operations should compose because we can know that we can pass a vector to `unique`, a vector to `length`, and an integer to `english::english`.
-As long as I know the type behavior of each function, I can anticipate the type behavior of the compositions.
+Stated differently, if I know the type behavior of each function, I know the type behavior of the compositions.
+That is an extremely useful and powerful foundation for building big things.
 
 
 ## Something bigger: means within groups
 
-This is where we really start to see the difference between functional programming "trees" and more typical "sequences of imperative statements."
+This is where we really start to see the difference between typical "imperative" programming and functional programming "trees".
 Let's take something we commonly do in R, calculate means within groups of data, and do it with our functional tools.
 Let's take the `mtcars` data frame...
 ```{r}
 head(mtcars, 5)
 ```
-...and calculate the mean of each variable as a new data frame.
+...and calculate the mean of each variable as a new data frame with one row per group.
+We want to be able to specify the group on the fly.
 
 We want to chart a course through this problem that composes small, re-usable steps on well-defined types.
 Here is my plan:
 
 1. define a function that maps a data frame of raw data to a data frame of column means.
-2. define a function to apply this routine to groups of data
+2. define a function to _any_ function to groups of data
 3. compose a function that implements a split-apply-combine which is the composition of the above steps.
 
 ### 1. Means for a data frame.
@@ -367,10 +370,14 @@ We create a function by composing the following functions that map the following
 - `as.list`: vector $\mapsto$ list
 - `tibble::as_tibble`: list $\mapsto$ data_frame
 
+You can see how these functions take us incrementally from data frame, to vector, to list, back to data frame.
+So we these operations should compose nicely.
+
 ```{r}
 means = compose(c(tibble::as_tibble, as.list, colMeans))
 ```
-...which works when we call it with `mtcars`.
+
+Testing it on the full data:
 ```{r}
 means(mtcars)
 ```
@@ -394,9 +401,9 @@ apply_on_elements = function(l, f) {
 }
 ```
 
-Notice, this function takes two objects and returns one object.
-In order to nicely compose it with other functions that take and return only one object, I want a way to reduce the arguments supplied.
-This is a little weird, but I am going to do something that is evocative of a python tool called a `partial`, which takes a function `f` and returns a new function `f*`, which is just like `f` but with some of the arguments pre-filled.
+Notice, this function takes _two_ objects as arguments and returns one object.
+In order to nicely compose it with other functions that take and return only _one_ object, I want a way to reduce the arguments required when I call it.
+This is a little weird, but I am going to create something like a Python tool called a `partial`, which takes a function `f` and returns a new function `f*`, which is just like `f` but with some of the arguments pre-filled.
 Let's define it before I explain further:
 
 ```{r}
@@ -407,18 +414,18 @@ partial_apply = function(f) {
 
 So `partial_apply` takes a function `f` and returns a _new_ function.
 That new function applies `f` to some iterable object `x` to return a list.
-But the function isn't evaluated; it is only created.
-The user has to evaluate it later.
+But the function isn't evaluated; it is only created, because I never provide an `x` in the outer function.
+The user has to pass `x` to evaluate the partial at a later time.
 
-Here we use this tool to create a partial `as.character`, which we apply to some `x`.
+Here we use this tool to create a partial `length`, which we apply to some `x`.
 
 ```{r}
-make_chars = partial_apply(as.character)
+lengths = partial_apply(length)
 
 # examine, it's a function
-make_chars
+lengths
 
-make_chars(x)
+lengths(x)
 ```
 
 We see more of that delayed evaluation behavior.
@@ -478,7 +485,7 @@ means_by = compose(c(dplyr::bind_rows, partial_apply(means), split))
 ```
 
 Again, given that step (2) is rebuilding the wheel, it's pretty impressive how little code goes into steps (1) and (3) to achieve the end results.
-It certainly isn't as succinct as `dplyr::summarize`, but remember, functional programming hasn't been invented yet.
+The final API in this iteration certainly isn't as succinct as `dplyr` grouping and summarizing, but remember, functional programming hasn't been invented yet.
 But moreover, you can start to imagine how tools like partials can be stacked to create tools that are essentially as powerful as `dplyr`, even if their interfaces are different (more functional).
 
 
