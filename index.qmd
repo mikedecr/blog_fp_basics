@@ -443,7 +443,6 @@ Here's how we map these steps from type to type.
 The composition of all these steps creates a function that eats a data frame and returns a data frame.
 
 ```{r}
-# compose steps to cre
 means_by = compose(c(dplyr::bind_rows, partial_apply(group_means), split))
 ```
 
