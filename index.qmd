@@ -410,6 +410,8 @@ That new function applies `f` to some iterable object `x` to return a list.
 But the function isn't evaluated; it is only created.
 The user has to evaluate it later.
 
+Here we use this tool to create a partial `as.character`, which we apply to some `x`.
+
 ```{r}
 make_chars = partial_apply(as.character)
 
