@@ -18,24 +18,21 @@ draft: false
 
 When people talk about "functional programming" in R, they usually mean two things.
 
-1. Many intermediate R users have a _thing_ against for-loops in R.
-   This is because for-loops have a reputation[^loops] for being slow in R.
+1. Not doing for-loops.
+   Many intermediate R users have a _thing_ against for-loops because for-loops have a (not exactly fair[^loops]) reputation for being slow in R.
    Instead, these users advocate for `*apply` functions or `purrr::map`.
-   This is called "functional programming" because we are applying a function to the data in some container instead of procedurally manipulating the data explicitly.
+   This is called "functional programming" because we are applying a function to over some container of data instead of imperatively manipulating the data state directly.
 2. More [advanced](https://adv-r.hadley.nz/fp.html) R discussions refer to the fact that functions are first-class objects in R, 
-   meaning you can look at their properties and do operations on functions themselves, just like you could with other objects.
+   so you can examine their properties and do operations on functions themselves, just like you could with other objects.
 
-[^loops]: This reputation may be unfair.
-        Most of the time, loops in R are slow because people are doing unwise things with them,
-        like copying data or growing objects in each iteration.
+[^loops]: Most of the time, loops in R are slow because people are doing unwise things with them.
 
-Most R users are probably more familiar with the meaning of [1] than [2],
-which is a shame because functional programming outside of R goes way deeper, and get _way_ weirder, than `apply(function, data)`.
+[1] is definitely the more popular understanding than [2], which is a shame because functional programming outside of R goes way deeper, and get _way_ weirder, than `apply(function, data)`.
 This post is an attempt to explain a little of that weirdness and implement it in R with some obnoxious examples.
 
-Readers who are experienced with functional programming will recognize that this post isn't the most rigorous explanation ever.
-They may also realize that R's interfaces already contain a lot of functional ideas even if most users may not know how to recognize and articulate those ideas.
-But this post keeps the material fairly light.
+Readers with more FP experience will recognize that this post isn't the most rigorous.
+They may also realize that R is backed by a lot of functional ideas even if many users may not recognize or articulate those ideas readily.
+That's fine if you know that stuff, but this post is meant to be light on the technicals.
 
 
 ## What is functional programming?
@@ -54,9 +51,9 @@ Well... read on:
 > It is a declarative programming paradigm in which function definitions are trees of expressions that map values to other values,
 > rather than a sequence of imperative statements which update the running state of the program.
 
-There are a lot of information-dense parts of that sentence that may be difficult to appreciate without knowing more of the theory.
-But let's try to break it apart.
-Starting in the middle.
+There are a many information-dense pieces to that sentence that will be difficult to appreciate without a little more theory.
+But let's try to break it apart, starting in the middle.
+
 
 ### "Functions map values to other values"
 
@@ -68,18 +65,19 @@ and we say that $y$ is a function of $x$.
 We can label the transformation of $x$ as $f$ and say $y = f(x)$.
 Easy!
 
-But there is another way to write statements like this that you may have seen in papers that have high opinions of their own notation:
+But there is another way to write statements like:
 $$
 f : X \to Y
 $$ {#eq-map}
-which reads, "$f$ is a _map_ from $X$ to $Y$", where capital-$X$ and capital-$Y$ are _sets_ of values from which the single values $x$ and $y$ are drawn.
-Which is to say: $f$ is like a lookup table then outputs a value from $Y$ when it sees an input from $X$.
-In this example, the value of $y$ that it returns is $a + (b \times x)$.[^category]
+which reads, "$f$ is a _map_ from $X$ to $Y$", where capital-$X$ and capital-$Y$ are _sets_ of values from which little-$x$ and little-$y$ are drawn.
+Which is to say: $f$ is like a lookup table that outputs a value from $Y$ when it sees an input from $X$.
+In this example, the value of $y$ that it returns is equal to $a + (b \times x)$.[^category]
 
-[^category]: You may have assumed that $x$ and $y$ are Real (that is, $\mathbb{R}$) numbers and that the operations $+$ and $\times$ refer to the sum and product operations that we conventionally apply to real numbers.
+[^category]: You may have assumed that $x$ and $y$ are numbers and that the operations $+$ and $\times$ refer to the addition and multiplication of numbers.
            It's fine if you made those assumptions, but it wasn't necessary.
-           One cool thing about this family of math is that you can let $X$ and $Y$ be other kinds of sets containing god-knows-what, and as long as $+$ and $\times$ refer to operations on values from those sets that maintain certain properties, the $f$ map remains perfectly coherent.
-           [Category theory](https://www.youtube.com/watch?v=I8LbkfSSR58&list=PLbgaMIhjbmEnaH_LTkxLI7FMa2HsnawM_&index=1) tells us about which properties must be maintained for this expression to hold in other contexts.
+           $X$ and $Y$ could be other sets containing god-knows-what, and there are many kinds of operations that follow "algebraic" patterns akin to addition and subtraction.
+           But we leave algebraic data types for another day.
+
 
 ### "Function definitions are _trees_ of expressions ..." 
 
@@ -88,38 +86,32 @@ Referring to functions as "trees" won't make sense until we talk about **functio
 First, composition.
 If the notation in [@eq-map] is new to you, your mental picture of function composition probably looks like this.
 We can take two functions $f$ and $g$...
+
 \begin{align}
     y &= f(x) \\
     z &= g(y) 
 \end{align}
+
 and put them together...
 $$ \begin{align} z &= g(f(x)) \end{align} $$ {#eq-nested}
 and then we can represent that composition with a different symbol $h$, so that that $h(x)$ is equivalent to $g(f(x))$.
 
 There's nothing incorrect about that approach, but it is verbose.
 We actually don't have to refer to any function arguments or values (x$, $y$, or $z$) to introduce $h$.
-Instead we can define $h$ "point-free":
+Instead we can define $h$ in a "point-free" style,
 $$ h = g \circ f $$ {#eq-composition}
 where the symbol $\circ$ refers to function composition (in a leftward direction).
-The expression $g \circ f$ is a new function, which we can speak aloud as "$g$ compose $f$" or "$g$ after $f$".
+The expression $g \circ f$ is a _new function_, which we can say aloud as "$g$ compose $f$" or "$g$ after $f$".
 Because the composition is itself a function, we can pass it an argument: $(g \circ f)(x)$ would spit out the value $z$, just like in [@eq-nested].
 
-Okay, next point.
-Associativity.
-Function composition is associative, which means compositions can be "grouped" in whatever way you want as long as you don't rearrange the ordering of the base functions.
+Okay, now associativity.
+Function composition is associative, which means compositions can be "grouped" in whatever way you want as long as you don't change the ordering of the functions.
 
-To demonstrate, let's write some functions out in "map" notation, and for the sake of simplicity let's say that each is a map from a real number to a real number.
-\begin{align}
-    \newcommand{\R}{\mathbb{R}}
-    f &: \R \to \R \\
-    g &: \R \to \R \\
-    j &: \R \to \R 
-\end{align}
-Now we want to compose these functions.
-Because composition is associative, we could write the composition many ways:
+To demonstrate, let's say we have three functions, $f$, $g$, and $j$, and we want to compose these functions.
+There are a few ways to do it:
 
 - As one single chained composition: $j \circ g \circ f$, which if applied to $x$ would be equivalent to $j(g(f(x)))$.
-- Introduce $h = g \circ f$ as above, and rewrite as $j \circ h$. This is the same as $j \circ (g \circ f)$ or $j(h(x))$.
+- Introduce $h = g \circ f$, and rewrite as $j \circ h$. This is the same as $j \circ (g \circ f)$ or $j(h(x))$.
 - Compose $j$ and $g$ into some $d$ and say $d \circ f$, which is the same as $(j \circ g) \circ f$ or $d(f(x))$.
 
 All of these expressions are equivalent.
@@ -131,36 +123,34 @@ And we can take a series of compositions and group them in whatever way we want,
 **But how is this a "tree"?**
 I will make a little graph with nodes and edges that shows the basic idea.
 Caveats up front that this will be pretty informal, but let's say the functions are nodes, and the edges point in the direction of composition.
-Here is an example showing $a = (j \circ g \circ f)(x)$ as a tree.
-
-
-```{dot}
-#| fig-align: center
-#| label: fig-tree
-digraph F {
-    layout=dot
-    j -> a;
-    g -> a;
-    f -> a;
-}
-```
-
-The tree lets us express associativity in a different way: we can pre-compose any two functions by creating another node from them.
+Let's say function $f$ takes two arguments, $a$ and $b$.
 
 ```{dot}
 #| fig-align: center
+#| label: fig-tree-0
 digraph F {
     layout=dot
-    j -> a;
-    h -> a;
-    g -> h;
-    f -> h;
+    a -> f
+    b -> f
 }
 ```
 
-We can see that the composition is associative because the composition of $f$ and $g$ into $h$ doesn't change the order in which functions are applied to form $a$.
-We can "pre-group" functions in the tree however we want, but we can't change their ordering except in special circumstances.
-Composition is associative, but not all functions are commutative.
+But maybe the value of $a$ is the result of a function that itself takes two arguments, $p$ and $q$, and $b$ is the result of a function of $r$.
+
+```{dot}
+#| fig-align: center
+#| label: fig-tree-1
+digraph F {
+    layout=dot
+    b -> f
+    a -> f
+    p -> a
+    q -> a
+    r -> b
+}
+```
+
+The tree lets us express composition and associativity in a different way: $f$ doesn't really care how you compose or group the operations ahead of it, as long as the values that you pass are $a$-like and $b$-like.
 
 
 ### "...Rather than a sequence of imperative statements that update the running state."
@@ -189,9 +179,9 @@ The data have to be acted on eventually, but we do it only after we compose a ma
 
 Stated a different way, when we do more imperative programming, the present state of `x` is always our concern.
 Our path from beginning to end requires us to leave `x` in some intermediate state at many different steps, and if the state of `x` is exposed along the way, there can be problems that mutate `x` into something you don't want it to be.
-When we do functional programming, however, we simply write the recipe for what we will do to `x` before `x` is ever instantiated.
-The roadmap is set ahead of time, so the intermediate state of `x` is ideally always obscured to other runtime interventions.
-This is okay because the intermediate state isn't what we want out of this program.
+When we do functional programming, however, we write the recipe for what we will do to `x` if we ever encountered such an `x`.
+The roadmap is set ahead of time, so the intermediate state of `x` is obscured behind the functions that we compose.
+We can't really get to the intermediate state because we aren't supposed to be able to.
 
 This might be hard to envision because we haven't talked tangibly about functional programming interfaces in R yet, so let's do that.
 
@@ -211,12 +201,8 @@ a = compose(j, g, f)
 There are two important things to remember about this.
 
 1. Function composition creates a _new function_.
-   It does not immediately evaluate the function on data.
-   In the example, `a` is the composition, and it is entirely ignorant of the data you may pass to it.
-   It may not be evaluated on data at all directly---we will likely compose `a` with another function before we even think about data.
-   If you have ever heard of _delayed evaluation_, this is probably why.
-   You were probably doing something that implicitly created new functions instead of evaluating the literal command on the data.
-   Tidy evaluation does this all the time, which is why you can pass unquoted variable names to `dplyr` verbs, for instance.
+   It does not immediately _evaluate_ the function on any data.
+   In the above example, `a` is the composition, and it is entirely ignorant of any data you may pass to it.
 2. Function compositions are themselves composable, so we want a framework to compose a lot of functions all at once with whatever associative groupings we want.
    We saw above (with math) that we could compose an arbitrary sequence of functions and the result should be well-behaved (as long as their input and output types conform---more on that in a bit).
    We would like to achieve that behavior in the code as well.
@@ -347,6 +333,10 @@ That is an extremely useful and powerful foundation for building big things.
 
 This is where we really start to see the difference between typical "imperative" programming and functional programming "trees".
 Let's take something we commonly do in R, calculate means within groups of data, and do it with our functional tools.
+We will write this in a functional setup that, I admit, is sort of an ugly interface.
+But the point isn't to write a perfect interface, it's to demonstrate what it's like to be functional.
+So let's roll with some ugly code for a while.
+
 Let's take the `mtcars` data frame...
 ```{r}
 head(mtcars, 5)
