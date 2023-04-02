@@ -323,7 +323,7 @@ $$
 $$
 We know that `unique` takes objects of various types (which I represent as `many` to say "this function has many methods for different data types") and returns a vector of unique elements.
 We know that length takes `many` and returns its integer length, and that should work for a vector input.
-And `engligh::english` turns `many` objects into `english` type, which ought to work for an integer input.
+And `english::english` turns `many` objects into `english` type, which ought to work for an integer input.
 But we know that these operations should compose because we can know that we can pass a vector to `unique`, a vector to `length`, and an integer to `english::english`.
 Stated differently, if I know the type behavior of each function, I know the type behavior of the compositions.
 That is an extremely useful and powerful foundation for building big things.
